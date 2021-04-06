@@ -68,8 +68,9 @@ class TestQasperReader:
             "question_tokens",
             "paragraphs",
             "context_tokens",
-            "evidence",
-            "answer",
+            "all_evidence",
+            "all_evidence_masks",
+            "all_answers",
             "article_id",
             "question_id",
         }
