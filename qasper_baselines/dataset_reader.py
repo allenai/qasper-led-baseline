@@ -159,7 +159,7 @@ class QasperReader(DatasetReader):
             all_evidence_masks = []
             for answer_annotation in question_answer["answers"]:
                 answer, evidence = self._extract_answer_and_evidence(
-                    question_answer["answers"][0]["answer"]
+                    answer_annotation["answer"]
                 )
                 all_answers.append(answer)
                 all_evidence.append(evidence)
