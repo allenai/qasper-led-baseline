@@ -1,0 +1,175 @@
+{
+  "1909.00694": {
+    "title": "Minimally Supervised Learning of Affective Events Using Discourse Relations",
+    "abstract": "Recognizing affective events that trigger positive or negative sentiment has a wide range of natural language processing applications but remains a challenging problem mainly because the polarity of an event is not necessarily predictable from its constituent words. In this paper, we propose to propagate affective polarity using discourse relations. Our method is simple and only requires a very small seed lexicon and a large raw corpus. Our experiments using Japanese data show that our method learns affective events effectively without manually labeled data. It also improves supervised learning results when labeled data are small.",
+    "full_text": [
+      {
+        "section_name": "Introduction",
+        "paragraphs": [
+          "A short paragraph",
+          "Another intro paragraph"
+        ]
+      },
+      {
+        "section_name": "Related Work",
+        "paragraphs": [
+          "Shorter paragraph",
+          ""
+        ]
+      },
+      {
+        "section_name": "Proposed Method",
+        "paragraphs": [
+          ""
+        ]
+      },
+      {
+        "section_name": "Proposed Method ::: Polarity Function",
+        "paragraphs": [
+          "",
+          "Method paragraph using seed lexicon",
+          ""
+        ]
+      },
+      {
+        "section_name": "Conclusion",
+        "paragraphs": [
+          "Conclusion paragraph"
+        ]
+      }
+    ],
+    "qas": [
+      {
+        "question": "What is the seed lexicon?",
+        "question_id": "753990d0b621d390ed58f20c4d9e4f065f0dc672",
+        "nlp_background": "two",
+        "topic_background": "unfamiliar",
+        "paper_read": "no",
+        "search_query": "",
+        "question_writer": "writer0",
+        "answers": [
+          {
+            "answer": {
+              "unanswerable": false,
+              "extractive_spans": [],
+              "yes_no": null,
+              "free_form_answer": "a vocabulary",
+              "evidence": [
+                "Method paragraph using seed lexicon"
+              ],
+              "highlighted_evidence": [
+                "using seed lexicon"
+              ]
+            },
+            "annotation_id": "31e85022a847f37c15fd0415f3c450c74c8e4755",
+            "timestamp": "2020-07-26 14:43:00.311000-07:00",
+            "worker_id": "writer0"
+          },
+          {
+            "answer": {
+              "unanswerable": false,
+              "extractive_spans": [
+                "using seed lexicon"
+              ],
+              "yes_no": null,
+              "free_form_answer": "",
+              "evidence": [
+                "Method paragraph using seed lexicon"
+              ],
+              "highlighted_evidence": [
+                "paragraph using seed"
+              ]
+            },
+            "annotation_id": "95da0a6e1b08db74a405c6a71067c9b272a50ff5",
+            "timestamp": "2020-08-05 06:50:59.144000-07:00",
+            "worker_id": "writer1"
+          }
+        ]
+      },
+      {
+        "question": "Are there three?",
+        "question_id": "753990d0b621d390ed58f20c4d9e4f065f0dc672",
+        "nlp_background": "two",
+        "topic_background": "unfamiliar",
+        "paper_read": "no",
+        "search_query": "",
+        "question_writer": "writer0",
+        "answers": [
+          {
+            "answer": {
+              "unanswerable": false,
+              "extractive_spans": [],
+              "yes_no": true,
+              "free_form_answer": "",
+              "evidence": [
+                "Method paragraph using seed lexicon"
+              ],
+              "highlighted_evidence": [
+                "using seed lexicon"
+              ]
+            },
+            "annotation_id": "31e85022a847f37c15fd0415f3c450c74c8e4755",
+            "timestamp": "2020-07-26 14:43:00.311000-07:00",
+            "worker_id": "writer0"
+          }
+        ]
+      },
+      {
+        "question": "Are there four?",
+        "question_id": "753990d0b621d390ed58f20c4d9e4f065f0dc672",
+        "nlp_background": "two",
+        "topic_background": "unfamiliar",
+        "paper_read": "no",
+        "search_query": "",
+        "question_writer": "writer0",
+        "answers": [
+          {
+            "answer": {
+              "unanswerable": true,
+              "extractive_spans": [],
+              "yes_no": null,
+              "free_form_answer": "",
+              "evidence": [
+                "Method paragraph using seed lexicon"
+              ],
+              "highlighted_evidence": [
+                "using seed lexicon"
+              ]
+            },
+            "annotation_id": "31e85022a847f37c15fd0415f3c450c74c8e4755",
+            "timestamp": "2020-07-26 14:43:00.311000-07:00",
+            "worker_id": "writer0"
+          }
+        ]
+      },
+      {
+        "question": "Is this extractive?",
+        "question_id": "753990d0b621d390ed58f20c4d9e4f065f0dc672",
+        "nlp_background": "two",
+        "topic_background": "unfamiliar",
+        "paper_read": "no",
+        "search_query": "",
+        "question_writer": "writer0",
+        "answers": [
+          {
+            "answer": {
+              "unanswerable": false,
+              "extractive_spans": ["Conclusion paragraph"],
+              "yes_no": null,
+              "free_form_answer": "",
+              "evidence": [
+                "Method paragraph using seed lexicon"
+              ],
+              "highlighted_evidence": [
+                "using seed lexicon"
+              ]
+            },
+            "annotation_id": "31e85022a847f37c15fd0415f3c450c74c8e4755",
+            "timestamp": "2020-07-26 14:43:00.311000-07:00",
+            "worker_id": "writer0"
+          }
+        ]
+      }
+    ]
+  }
+}
