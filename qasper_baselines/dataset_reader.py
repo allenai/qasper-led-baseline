@@ -47,7 +47,7 @@ class QasperReader(DatasetReader):
        paragraphs, and the gold evidence spans, accessible as `metadata['question_id']`,
        `metadata['article_id']`, `metadata['question']`, `metadata['context']`,
        `metadata['question_tokens']`, `metadata['context_tokens']`,
-       `metadata['context_paragraphs']` and `metadata['evidence']`.
+       `metadata['context_paragraphs']`, `metadata['all_evidence']`, `metadata['all_answers']`.
 
     Parameters
     ----------
@@ -67,6 +67,11 @@ class QasperReader(DatasetReader):
         If `True`, we will include a field in the output containing a global attention mask for use
         with a longformer, which is `True` for all starts of paragraphs and question tokens, so
         attention will always be placed on those tokens.
+    for_training : `bool` (default = False)
+        This flag affects how questions with multiple answers are handled. When set to True, this flag
+        causes the reader to yield one instance per answer. When set to False, the instance will contain
+        only the first answer. The metadata will always contain all the answers and evidence, which can be
+        used at evaluation time to compute aggregated metrics.
     """
 
     def __init__(
@@ -76,6 +81,7 @@ class QasperReader(DatasetReader):
         max_document_length: int = 16384,
         paragraph_separator: Optional[str] = "</s>",
         include_global_attention_mask: bool = True,
+        for_training: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -95,6 +101,7 @@ class QasperReader(DatasetReader):
         self.max_query_length = max_query_length
         self.max_document_length = max_document_length
         self._paragraph_separator = paragraph_separator
+        self._for_training = for_training
         self._stats = defaultdict(int)
 
     @overrides
@@ -147,23 +154,56 @@ class QasperReader(DatasetReader):
             if len(question_answer["answers"]) > 1:
                 self._stats["questions with multiple answers"] += 1
 
-            # TODO(pradeep): handle multiple answers
-            answer, evidence = self._extract_answer_and_evidence(
-                question_answer["answers"][0]["answer"]
-            )
+            all_answers = []
+            all_evidence = []
+            all_evidence_masks = []
+            for answer_annotation in question_answer["answers"]:
+                answer, evidence = self._extract_answer_and_evidence(
+                    question_answer["answers"][0]["answer"]
+                )
+                all_answers.append(answer)
+                all_evidence.append(evidence)
+                evidence_mask = self._get_evidence_mask(evidence, paragraphs)
+                all_evidence_masks.append(evidence_mask)
+
             additional_metadata = {
                 "question_id": question_answer["question_id"],
                 "article_id": article.get("article_id"),
+                "all_answers": all_answers,
+                "all_evidence": all_evidence,
+                "all_evidence_masks": all_evidence_masks,
             }
-            yield self.text_to_instance(
-                question_answer["question"],
-                paragraphs,
-                tokenized_context,
-                paragraph_start_indices,
-                evidence,
-                answer,
-                additional_metadata,
-            )
+            answers_to_yield = all_answers if self._for_training else [all_answers[0]]
+            evidence_masks_to_yield = all_evidence_masks if self._for_training else [all_evidence_masks[0]]
+            for answer, evidence_mask in zip(answers_to_yield, evidence_masks_to_yield):
+                yield self.text_to_instance(
+                    question_answer["question"],
+                    paragraphs,
+                    tokenized_context,
+                    paragraph_start_indices,
+                    evidence_mask,
+                    answer,
+                    additional_metadata,
+                )
+
+    @staticmethod
+    def _get_evidence_mask(evidence: List[str], paragraphs: List[str]) -> List[int]:
+        """
+        Takes a list of evidence snippets, and the list of all the paragraphs from the
+        paper, and returns a list of indices of the paragraphs that contain the evidence.
+        """
+        if not evidence:
+            return []
+        evidence_mask = []
+        for i, paragraph in enumerate(paragraphs):
+            for evidence_str in evidence:
+                if evidence_str in paragraph:
+                    evidence_mask.append(1)
+                    break
+            else:
+                evidence_mask.append(0)
+
+        return evidence_mask
 
     @overrides
     def text_to_instance(
@@ -172,7 +212,7 @@ class QasperReader(DatasetReader):
         paragraphs: List[str],
         tokenized_context: List[Token] = None,
         paragraph_start_indices: List[int] = None,
-        evidence: List[str] = None,
+        evidence_mask: List[int] = None,
         answer: str = None,
         additional_metadata: Dict[str, Any] = None,
     ) -> Instance:
@@ -212,15 +252,7 @@ class QasperReader(DatasetReader):
             ]
             fields["global_attention_mask"] = TensorField(torch.tensor(mask))
 
-        if evidence:
-            evidence_mask = []
-            for i, paragraph in enumerate(paragraphs):
-                for evidence_str in evidence:
-                    if evidence_str in paragraph:
-                        evidence_mask.append(1)
-                        break
-                else:
-                    evidence_mask.append(0)
+        if evidence_mask is not None:
             evidence_field = TensorField(torch.tensor(evidence_mask))
             fields["evidence"] = evidence_field
 
@@ -233,8 +265,6 @@ class QasperReader(DatasetReader):
             "question_tokens": tokenized_question,
             "paragraphs": paragraphs,
             "context_tokens": tokenized_context,
-            "evidence": evidence,
-            "answer": answer,
         }
         if additional_metadata is not None:
             metadata.update(additional_metadata)
