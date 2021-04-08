@@ -124,6 +124,8 @@ class QasperReader(DatasetReader):
         with open_compressed(file_path) as dataset_file:
             dataset = json.load(dataset_file)
         for article_id, article in self.shard_iterable(dataset.items()):
+            if not article["full_text"]:
+                continue
             article["article_id"] = article_id
             yield from self._article_to_instances(article)
         self._log_stats()
@@ -192,8 +194,6 @@ class QasperReader(DatasetReader):
         Takes a list of evidence snippets, and the list of all the paragraphs from the
         paper, and returns a list of indices of the paragraphs that contain the evidence.
         """
-        if not evidence:
-            return []
         evidence_mask = []
         for i, paragraph in enumerate(paragraphs):
             for evidence_str in evidence:
@@ -219,10 +219,30 @@ class QasperReader(DatasetReader):
         fields = {}
 
         tokenized_question = self._tokenizer.tokenize(question)
-        if not tokenized_context or not paragraph_start_indices:
+        if len(tokenized_question) > self.max_query_length:
+            self._stats["number of truncated questions"] += 1
+            tokenized_question = tokenized_question[:self.max_query_length]
+
+        if tokenized_context is None or paragraph_start_indices is None:
             tokenized_context, paragraph_start_indices = self._tokenize_paragraphs(
                 paragraphs
             )
+
+        allowed_context_length = (
+                self.max_document_length
+                - len(tokenized_question)
+                - len(self._tokenizer.sequence_pair_start_tokens)
+                - len(self._tokenizer.sequence_pair_mid_tokens)
+                - len(self._tokenizer.sequence_pair_end_tokens)
+        )
+        if len(tokenized_context) > allowed_context_length:
+            self._stats["number of truncated contexts"] += 1
+            tokenized_context = tokenized_context[:allowed_context_length]
+            paragraph_start_indices = [index for index in paragraph_start_indices
+                                       if index <= allowed_context_length]
+            if evidence_mask is not None:
+                num_paragraphs = len(paragraph_start_indices)
+                evidence_mask = evidence_mask[:num_paragraphs]
 
         # make the question field
         question_field = TextField(
@@ -241,6 +261,7 @@ class QasperReader(DatasetReader):
         paragraph_indices_field = ListField(
             [IndexField(x, question_field) for x in paragraph_indices_list]
         )
+
         fields["paragraph_indices"] = paragraph_indices_field
 
         if self._include_global_attention_mask:
@@ -333,6 +354,8 @@ class QasperReader(DatasetReader):
         for section_info in full_text:
             # TODO (pradeep): It is possible there are other discrepancies between plain text, LaTeX and HTML.
             # Do a thorough investigation and add tests.
+            if section_info["section_name"] is not None:
+                paragraphs.append(section_info["section_name"])
             for paragraph in section_info["paragraphs"]:
                 paragraph_text = paragraph.replace("\n", " ").strip()
                 if paragraph_text:

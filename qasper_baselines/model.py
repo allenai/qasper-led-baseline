@@ -1,7 +1,7 @@
 from typing import Any, Dict, List
 from overrides import overrides
 
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForSeq2SeqLM, AutoTokenizer
 from transformers.models.led.modeling_led import shift_tokens_right
 import torch
 
@@ -20,11 +20,14 @@ class QasperBaseline(Model):
         self,
         vocab: Vocabulary,
         transformer_model_name: str,
+        attention_dropout: float = 0.1,
         evidence_feedforward: FeedForward = None,
         **kwargs
     ):
         super().__init__(vocab, **kwargs)
-        self.transformer = AutoModelForSeq2SeqLM.from_pretrained(transformer_model_name)
+        transformer_config = AutoConfig.from_pretrained(transformer_model_name)
+        transformer_config.attention_dropout = attention_dropout
+        self.transformer = AutoModelForSeq2SeqLM.from_config(transformer_config)
         self.tokenizer = AutoTokenizer.from_pretrained(
             transformer_model_name,
             add_special_tokens=False
@@ -70,7 +73,7 @@ class QasperBaseline(Model):
         output_dict = {}
         loss = None
         if answer is not None:
-            loss = output["loss"]
+            loss = output['loss']
             if not self.training:
                 # Computing evaluation metrics
                 # max_length: 100 covers 97% of the data. 116 for 98%, 169 for 99%, 390 for 99.9%, 
@@ -129,8 +132,11 @@ class QasperBaseline(Model):
         for instance_predicted, instance_gold in zip(predicted_evidence_indices, gold_evidence_indices):
             instance_f1s = []
             for gold in instance_gold:
-                true_positives = sum([i and j for i, j in zip(instance_predicted, gold)])
-                precision = true_positives / sum(instance_predicted) if sum(instance_predicted) != 0 else 0.0
+                # If the document was truncated to fit in the model, the gold will be longer than the 
+                # predicted indices.
+                predicted = instance_predicted + [0] * (len(gold) - len(instance_predicted))
+                true_positives = sum([i and j for i, j in zip(predicted, gold)])
+                precision = true_positives / sum(predicted) if sum(predicted) != 0 else 0.0
                 recall = true_positives / sum(gold) if sum(gold) != 0 else 0.0
                 if precision + recall == 0:
                     instance_f1s.append(0.0)
