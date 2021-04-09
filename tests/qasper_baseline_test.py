@@ -45,6 +45,8 @@ class TestQasperBaseline(ModelTestCase):
                               answer=answer,
                               metadata=[tensor_dict['metadata']])
         model_outputs['answer_logits'].size() == [1, 4, 50265]
+        logits_argmax = torch.argmax(model_outputs['answer_logits'], -1).tolist()
+        assert logits_argmax == [[0, 2264, 2, 2]]
         assert_almost_equal(
             model_outputs['loss'].detach().numpy(),
             numpy.asarray(7.8690)
