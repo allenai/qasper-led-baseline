@@ -76,7 +76,7 @@ class QasperReader(DatasetReader):
 
     def __init__(
         self,
-        transformer_model_name: str = "allenai/led-large-16384",
+        transformer_model_name: str = "allenai/led-base-16384",
         max_query_length: int = 128,
         max_document_length: int = 16384,
         paragraph_separator: Optional[str] = "</s>",
@@ -244,16 +244,20 @@ class QasperReader(DatasetReader):
                 num_paragraphs = len(paragraph_start_indices)
                 evidence_mask = evidence_mask[:num_paragraphs]
 
-        # make the question field
-        question_field = TextField(
-            self._tokenizer.add_special_tokens(tokenized_question, tokenized_context),
+        # This is what Iz's code does.
+        question_and_context = (
+            self._tokenizer.sequence_pair_start_tokens
+            + tokenized_question
+            + [Token(self._paragraph_separator)]
+            + tokenized_context
         )
+        # make the question field
+        question_field = TextField(question_and_context)
         fields["question_with_context"] = question_field
 
         start_of_context = (
             len(self._tokenizer.sequence_pair_start_tokens)
             + len(tokenized_question)
-            + len(self._tokenizer.sequence_pair_mid_tokens)
         )
 
         paragraph_indices_list = [x + start_of_context for x in paragraph_start_indices]
@@ -278,7 +282,9 @@ class QasperReader(DatasetReader):
             fields["evidence"] = evidence_field
 
         if answer:
-            fields["answer"] = TextField(self._tokenizer.tokenize(answer))
+            fields["answer"] = TextField(
+                self._tokenizer.add_special_tokens(self._tokenizer.tokenize(answer))
+            )
 
         # make the metadata
         metadata = {

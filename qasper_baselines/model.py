@@ -71,6 +71,7 @@ class QasperBaseline(Model):
         encoded_tokens = output["encoder_last_hidden_state"]
 
         output_dict = {}
+        output_dict["answer_logits"] = output["logits"]
         loss = None
         if answer is not None:
             loss = output['loss']
@@ -91,7 +92,6 @@ class QasperBaseline(Model):
                 gold_answers = [instance_metadata["all_answers"] for instance_metadata in metadata]
                 for predicted_answer, gold_answer in zip(predicted_answers, gold_answers):
                     self._answer_metrics(predicted_answer, gold_answer)
-
         if evidence is not None:
             paragraph_indices = paragraph_indices.squeeze(-1)
             encoded_paragraph_tokens = util.batched_index_select(encoded_tokens.contiguous(), paragraph_indices)
@@ -120,8 +120,8 @@ class QasperBaseline(Model):
                 for evidence_f1 in self._compute_evidence_f1(predicted_evidence_indices,
                                                              gold_evidence_indices):
                     self._evidence_f1(evidence_f1)
-
-        return {"loss": loss}
+        output_dict["loss"] = loss
+        return output_dict
 
     @staticmethod
     def _compute_evidence_f1(

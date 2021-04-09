@@ -10,8 +10,7 @@ local dev_data_path = "/net/nfs2.allennlp/pradeepd/data/qasper/qasper_naacl21_de
 local training_data_size = 2675;
 local num_gpus = 4;
 local num_steps = (training_data_size * epochs) / (num_gpus * num_gradient_accumulation_steps * batch_size);
-//local num_warmup_steps = std.ceil(warmup_steps_ratio * num_steps);
-local num_warmup_steps = 700;
+local num_warmup_steps = std.ceil(warmup_steps_ratio * num_steps);
 
 
 {
@@ -36,19 +35,11 @@ local num_warmup_steps = 700;
     },
     "data_loader": {
         "batch_size": batch_size,
-	//"batch_sampler": {
-        //  "type": "bucket",
-        //  "batch_size": batch_size,
-	//}
     },
     "trainer": {
       "optimizer": {
-        //"type": "huggingface_adam",
         "type": "adam",
-        //"weight_decay": 0.0,
-        //"parameter_groups": [[["bias", "LayerNorm\\.weight", "layer_norm\\.weight"], {"weight_decay": 0}]],
         "lr": 5e-5,
-        //"eps": 1e-8,
       },
       "learning_rate_scheduler": {
         "type": "linear_with_warmup",
