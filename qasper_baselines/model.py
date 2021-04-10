@@ -23,6 +23,7 @@ class QasperBaseline(Model):
         attention_dropout: float = 0.1,
         attention_window_size: int = 1024,
         evidence_feedforward: FeedForward = None,
+        use_evidence_scaffold: bool = True,
         **kwargs
     ):
         super().__init__(vocab, **kwargs)
@@ -40,6 +41,7 @@ class QasperBaseline(Model):
             self.evidence_feedforward = torch.nn.Linear(
                 self.transformer.config.hidden_size, 2
             )
+        self._use_evidence_scaffold = use_evidence_scaffold
         self._answer_metrics = SquadEmAndF1()
         self._evidence_f1 = Average()
 
@@ -93,7 +95,7 @@ class QasperBaseline(Model):
                 gold_answers = [instance_metadata["all_answers"] for instance_metadata in metadata]
                 for predicted_answer, gold_answer in zip(predicted_answers, gold_answers):
                     self._answer_metrics(predicted_answer, gold_answer)
-        if evidence is not None:
+        if self._use_evidence_scaffold and evidence is not None:
             paragraph_indices = paragraph_indices.squeeze(-1)
             encoded_paragraph_tokens = util.batched_index_select(encoded_tokens.contiguous(), paragraph_indices)
             evidence_logits = self.evidence_feedforward(encoded_paragraph_tokens)
