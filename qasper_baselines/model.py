@@ -27,9 +27,10 @@ class QasperBaseline(Model):
         **kwargs
     ):
         super().__init__(vocab, **kwargs)
-        self.transformer = AutoModelForSeq2SeqLM.from_pretrained(transformer_model_name)
-        self.transformer.attention_dropout = attention_dropout
-        self.transformer.config.attention_window = [attention_window_size] * len(self.transformer.config.attention_window)
+        config = AutoConfig.from_pretrained(transformer_model_name)
+        config.attention_dropout = attention_dropout
+        config.attention_window = [attention_window_size] * len(config.attention_window)
+        self.transformer = AutoModelForSeq2SeqLM.from_pretrained(transformer_model_name, config=config)
         self.tokenizer = AutoTokenizer.from_pretrained(
             transformer_model_name,
             add_special_tokens=False
