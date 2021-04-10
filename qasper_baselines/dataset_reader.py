@@ -232,8 +232,7 @@ class QasperReader(DatasetReader):
                 self.max_document_length
                 - len(tokenized_question)
                 - len(self._tokenizer.sequence_pair_start_tokens)
-                - len(self._tokenizer.sequence_pair_mid_tokens)
-                - len(self._tokenizer.sequence_pair_end_tokens)
+                - 1  # for paragraph seperator
         )
         if len(tokenized_context) > allowed_context_length:
             self._stats["number of truncated contexts"] += 1

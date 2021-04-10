@@ -21,13 +21,14 @@ class QasperBaseline(Model):
         vocab: Vocabulary,
         transformer_model_name: str,
         attention_dropout: float = 0.1,
+        attention_window_size: int = 1024,
         evidence_feedforward: FeedForward = None,
         **kwargs
     ):
         super().__init__(vocab, **kwargs)
-        transformer_config = AutoConfig.from_pretrained(transformer_model_name)
-        transformer_config.attention_dropout = attention_dropout
-        self.transformer = AutoModelForSeq2SeqLM.from_config(transformer_config)
+        self.transformer = AutoModelForSeq2SeqLM.from_pretrained(transformer_model_name)
+        self.transformer.attention_dropout = attention_dropout
+        self.transformer.config.attention_window = [attention_window_size] * len(self.transformer.config.attention_window)
         self.tokenizer = AutoTokenizer.from_pretrained(
             transformer_model_name,
             add_special_tokens=False
