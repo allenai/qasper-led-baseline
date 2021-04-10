@@ -22,6 +22,7 @@ class QasperBaseline(Model):
         transformer_model_name: str,
         attention_dropout: float = 0.1,
         attention_window_size: int = 1024,
+        gradient_checkpointing: bool = False,
         evidence_feedforward: FeedForward = None,
         use_evidence_scaffold: bool = True,
         **kwargs
@@ -30,6 +31,7 @@ class QasperBaseline(Model):
         config = AutoConfig.from_pretrained(transformer_model_name)
         config.attention_dropout = attention_dropout
         config.attention_window = [attention_window_size] * len(config.attention_window)
+        config.gradient_checkpointing = gradient_checkpointing
         self.transformer = AutoModelForSeq2SeqLM.from_pretrained(transformer_model_name, config=config)
         self.tokenizer = AutoTokenizer.from_pretrained(
             transformer_model_name,
@@ -86,6 +88,7 @@ class QasperBaseline(Model):
                 generated_token_ids = self.transformer.generate(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
+                    global_attention_mask=global_attention_mask,
                     max_length=100
                 )
                 predicted_answers = [
