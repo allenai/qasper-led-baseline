@@ -1,6 +1,7 @@
 import json
 import logging
 import random
+from enum import Enum
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Iterable, Tuple
 
@@ -25,6 +26,13 @@ from allennlp.data.tokenizers import Token, PretrainedTransformerTokenizer
 
 
 logger = logging.getLogger(__name__)
+
+
+class AnswerType(Enum):
+    EXTRACTIVE = 1
+    ABSTRACTIVE = 2
+    BOOLEAN = 3
+    NONE = 4
 
 
 @DatasetReader.register("qasper")
@@ -160,10 +168,10 @@ class QasperReader(DatasetReader):
             all_evidence = []
             all_evidence_masks = []
             for answer_annotation in question_answer["answers"]:
-                answer, evidence = self._extract_answer_and_evidence(
+                answer, evidence, answer_type = self._extract_answer_and_evidence(
                     answer_annotation["answer"]
                 )
-                all_answers.append(answer)
+                all_answers.append({"text": answer, "type": answer_type})
                 all_evidence.append(evidence)
                 evidence_mask = self._get_evidence_mask(evidence, paragraphs)
                 all_evidence_masks.append(evidence_mask)
@@ -175,7 +183,7 @@ class QasperReader(DatasetReader):
                 "all_evidence": all_evidence,
                 "all_evidence_masks": all_evidence_masks,
             }
-            answers_to_yield = all_answers if self._for_training else [all_answers[0]]
+            answers_to_yield = [x['text'] for x in all_answers] if self._for_training else [all_answers[0]['text']]
             evidence_masks_to_yield = all_evidence_masks if self._for_training else [all_evidence_masks[0]]
             for answer, evidence_mask in zip(answers_to_yield, evidence_masks_to_yield):
                 yield self.text_to_instance(
@@ -195,14 +203,13 @@ class QasperReader(DatasetReader):
         paper, and returns a list of indices of the paragraphs that contain the evidence.
         """
         evidence_mask = []
-        for i, paragraph in enumerate(paragraphs):
+        for paragraph in paragraphs:
             for evidence_str in evidence:
                 if evidence_str in paragraph:
                     evidence_mask.append(1)
                     break
             else:
                 evidence_mask.append(0)
-
         return evidence_mask
 
     @overrides
@@ -333,25 +340,30 @@ class QasperReader(DatasetReader):
             self._stats["multiple_evidence_spans_count"] += 1
 
         answer_string = None
+        answer_type = None
         if answer.get("unanswerable", False):
             self._stats["unanswerable questions"] += 1
             answer_string = "Unanswerable"
+            answer_type = AnswerType.NONE
         elif answer.get("yes_no") is not None:
             self._stats["yes/no questions"] += 1
             answer_string = "Yes" if answer["yes_no"] else "No"
+            answer_type = AnswerType.BOOLEAN
         elif answer.get("extractive_spans", []):
             self._stats["extractive questions"] += 1
             if len(answer["extractive_spans"]) > 1:
                 self._stats["extractive questions with multiple spans"] += 1
             answer_string = ", ".join(answer["extractive_spans"])
+            answer_type = AnswerType.EXTRACTIVE
         else:
             answer_string = answer.get("free_form_answer", "")
             if not answer_string:
                 self._stats["questions with empty answer"] += 1
             else:
                 self._stats["freeform answers"] += 1
+            answer_type = AnswerType.ABSTRACTIVE
 
-        return answer_string, evidence_spans
+        return answer_string, evidence_spans, answer_type
 
     @staticmethod
     def _get_paragraphs_from_full_text(full_text: List[JsonDict]) -> List[str]:

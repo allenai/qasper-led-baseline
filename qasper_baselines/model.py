@@ -13,6 +13,8 @@ from allennlp.training.metrics import Average
 
 from allennlp_models.rc.metrics import SquadEmAndF1
 
+from qasper_baselines.dataset_reader import AnswerType
+
 
 @Model.register("qasper_baseline")
 class QasperBaseline(Model):
@@ -46,6 +48,7 @@ class QasperBaseline(Model):
             )
         self._use_evidence_scaffold = use_evidence_scaffold
         self._answer_metrics = SquadEmAndF1()
+        self._answer_metrics_by_type = {answer_type: SquadEmAndF1() for answer_type in AnswerType}
         self._evidence_f1 = Average()
 
     def forward(
@@ -98,7 +101,12 @@ class QasperBaseline(Model):
                 output_dict["predicted_answers"] = predicted_answers
                 gold_answers = [instance_metadata["all_answers"] for instance_metadata in metadata]
                 for predicted_answer, gold_answer in zip(predicted_answers, gold_answers):
-                    self._answer_metrics(predicted_answer, gold_answer)
+                    self._answer_metrics(predicted_answer, [x['text'] for x in gold_answer])
+                    for gold_answer_info in gold_answer:
+                        self._answer_metrics_by_type[gold_answer_info['type']](
+                            predicted_answer,
+                            [gold_answer_info['text']]
+                        )
         if self._use_evidence_scaffold and evidence is not None:
             paragraph_indices = paragraph_indices.squeeze(-1)
             encoded_paragraph_tokens = util.batched_index_select(encoded_tokens.contiguous(), paragraph_indices)
@@ -159,5 +167,16 @@ class QasperBaseline(Model):
     @overrides
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
         _, f1_score = self._answer_metrics.get_metric(reset)
+        _, extractive_f1_score = self._answer_metrics_by_type[AnswerType.EXTRACTIVE].get_metric(reset)
+        _, abstractive_f1_score = self._answer_metrics_by_type[AnswerType.ABSTRACTIVE].get_metric(reset)
+        _, boolean_f1_score = self._answer_metrics_by_type[AnswerType.BOOLEAN].get_metric(reset)
+        _, none_f1_score = self._answer_metrics_by_type[AnswerType.NONE].get_metric(reset)
         evidence_f1 = self._evidence_f1.get_metric(reset)
-        return {"answer_f1": f1_score, "evidence_f1": evidence_f1}
+        return {
+            "answer_f1": f1_score,
+            "extractive_answer_f1": extractive_f1_score,
+            "abstractive_answer_f1": abstractive_f1_score,
+            "boolean_answer_f1": boolean_f1_score,
+            "none_answer_f1": none_f1_score,
+            "evidence_f1": evidence_f1
+        }
