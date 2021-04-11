@@ -140,15 +140,15 @@ class QasperBaseline(Model):
         for instance_predicted, instance_gold in zip(predicted_evidence_indices, gold_evidence_indices):
             instance_f1s = []
             for gold in instance_gold:
-                if sum(gold) == 0:
-                    instance_f1s.append(1.0)
-                    continue
                 # If the document was truncated to fit in the model, the gold will be longer than the 
                 # predicted indices.
                 predicted = instance_predicted + [0] * (len(gold) - len(instance_predicted))
                 true_positives = sum([i and j for i, j in zip(predicted, gold)])
-                precision = true_positives / sum(predicted) if sum(predicted) != 0 else 0.0
-                recall = true_positives / sum(gold)
+                if sum(predicted) == 0:
+                    precision = 1.0 if sum(gold) == 0 else 0.0
+                else:
+                    precision = true_positives / sum(predicted)
+                recall = true_positives / sum(gold) if sum(gold) != 0 else 1.0
                 if precision + recall == 0:
                     instance_f1s.append(0.0)
                 else:
