@@ -1,6 +1,6 @@
 local transformer_model = "allenai/led-base-16384";
 local epochs = 1;
-local batch_size = 3;
+local batch_size = 1;
 
 // This defines the number of instances, not the number of questions. One question can end up as
 // multiple instances.
@@ -10,6 +10,11 @@ local number_of_train_instances = 6;
     "dataset_reader": {
         "type": "qasper",
         "transformer_model_name": transformer_model,
+    },
+    "validation_dataset_reader": {
+        "type": "qasper",
+        "transformer_model_name": transformer_model,
+	"for_training": false,
     },
     "train_data_path": "fixtures/data/qasper_sample_small.json",
     "validation_data_path": "fixtures/data/qasper_sample_small.json",

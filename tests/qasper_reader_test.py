@@ -1,5 +1,6 @@
 # pylint: disable=no-self-use,invalid-name
 from allennlp.common.util import ensure_list
+from allennlp.data import Vocabulary
 
 from qasper_baselines.dataset_reader import QasperReader
 
@@ -21,47 +22,51 @@ class TestQasperReader:
         }
 
         token_text = [t.text for t in instance.fields["question_with_context"].tokens]
-        assert len(token_text) == 29
+        assert len(token_text) == 47
         assert token_text[:15] == [
-            "<s>",
-            "Are",
-            "Ġthere",
-            "Ġthree",
-            "?",
-            "</s>",
-            "</s>",
-            "A",
-            "Ġshort",
-            "Ġparagraph",
-            "</s>",  # default paragraph separator
-            "Another",
-            "Ġintro",
-            "Ġparagraph",
-            "</s>",
-        ]
+            '<s>',
+            'Are',
+            'Ġthere',
+            'Ġthree',
+            '?',
+            '</s>',
+            'Introduction',
+            '</s>',
+            'A',
+            'Ġshort',
+            'Ġparagraph',
+            '</s>',
+            'Another',
+            'Ġintro',
+            'Ġparagraph']
 
-        assert len(instance["paragraph_indices"]) == 5
+        assert len(instance["paragraph_indices"]) == 10
         # This is the first token after the separator for each paragraph.
         assert [x.sequence_index for x in instance["paragraph_indices"]] == [
+            5,
             7,
             11,
             15,
-            19,
+            18,
+            22,
             26,
+            35,
+            42,
+            44
         ]
 
-        expected_mask = [False] * 29
+        expected_mask = [False] * 47
         # question tokens and paragraph start indices
-        for x in [0, 1, 2, 3, 4, 5, 6, 7, 11, 15, 19, 26]:
+        for x in [0, 1, 2, 3, 4, 5, 7, 11, 15, 18, 22, 26, 35, 42, 44]:
             expected_mask[x] = True
 
         assert instance["global_attention_mask"].tensor.tolist() == expected_mask
 
         assert len(instance["evidence"]) == len(instance["paragraph_indices"])
-        assert instance["evidence"].tensor.tolist() == [0, 0, 0, 1, 0]
+        assert instance["evidence"].tensor.tolist() == [0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
 
         answer_text = [t.text for t in instance.fields["answer"].tokens]
-        assert answer_text == ["Yes"]
+        assert answer_text == ["<s>", "Yes", "</s>"]
 
         assert instance["metadata"].keys() == {
             "question",
@@ -77,10 +82,10 @@ class TestQasperReader:
 
         # Checking the answers for the other instances, which look at different fields of the json.
         answer_text = [t.text for t in instances[0].fields["answer"].tokens]
-        assert answer_text == ["a", "Ġvocabulary"]
+        assert answer_text == ["<s>", "a", "Ġvocabulary", "</s>"]
 
         answer_text = [t.text for t in instances[2].fields["answer"].tokens]
-        assert answer_text == ["Un", "answer", "able"]
+        assert answer_text == ["<s>", "Un", "answer", "able", "</s>"]
 
         answer_text = [t.text for t in instances[3].fields["answer"].tokens]
-        assert answer_text == ["Conclusion", "Ġparagraph"]
+        assert answer_text == ["<s>", "Conclusion", "Ġparagraph", "</s>"]

@@ -1,7 +1,7 @@
 from typing import Any, Dict, List
 from overrides import overrides
 
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers import AutoConfig, AutoModelForSeq2SeqLM, AutoTokenizer
 from transformers.models.led.modeling_led import shift_tokens_right
 import torch
 
@@ -11,7 +11,9 @@ from allennlp.models import Model
 from allennlp.modules import FeedForward
 from allennlp.training.metrics import Average
 
-from allennlp_models.rc.metrics import SquadEmAndF1
+from allennlp_models.rc.tools import squad
+
+from qasper_baselines.dataset_reader import AnswerType
 
 
 @Model.register("qasper_baseline")
@@ -20,11 +22,19 @@ class QasperBaseline(Model):
         self,
         vocab: Vocabulary,
         transformer_model_name: str,
+        attention_dropout: float = 0.1,
+        attention_window_size: int = 1024,
+        gradient_checkpointing: bool = False,
         evidence_feedforward: FeedForward = None,
+        use_evidence_scaffold: bool = True,
         **kwargs
     ):
         super().__init__(vocab, **kwargs)
-        self.transformer = AutoModelForSeq2SeqLM.from_pretrained(transformer_model_name)
+        config = AutoConfig.from_pretrained(transformer_model_name)
+        config.attention_dropout = attention_dropout
+        config.attention_window = [attention_window_size] * len(config.attention_window)
+        config.gradient_checkpointing = gradient_checkpointing
+        self.transformer = AutoModelForSeq2SeqLM.from_pretrained(transformer_model_name, config=config)
         self.tokenizer = AutoTokenizer.from_pretrained(
             transformer_model_name,
             add_special_tokens=False
@@ -36,8 +46,11 @@ class QasperBaseline(Model):
             self.evidence_feedforward = torch.nn.Linear(
                 self.transformer.config.hidden_size, 2
             )
-        self._answer_metrics = SquadEmAndF1()
+        self._use_evidence_scaffold = use_evidence_scaffold
+        self._answer_f1 = Average()
+        self._answer_f1_by_type = {answer_type: Average() for answer_type in AnswerType}
         self._evidence_f1 = Average()
+        self._evidence_loss = Average()
 
     def forward(
         self,
@@ -68,9 +81,10 @@ class QasperBaseline(Model):
         encoded_tokens = output["encoder_last_hidden_state"]
 
         output_dict = {}
+        output_dict["answer_logits"] = output["logits"]
         loss = None
         if answer is not None:
-            loss = output["loss"]
+            loss = output['loss']
             if not self.training:
                 # Computing evaluation metrics
                 # max_length: 100 covers 97% of the data. 116 for 98%, 169 for 99%, 390 for 99.9%, 
@@ -78,6 +92,7 @@ class QasperBaseline(Model):
                 generated_token_ids = self.transformer.generate(
                     input_ids=input_ids,
                     attention_mask=attention_mask,
+                    global_attention_mask=global_attention_mask,
                     max_length=100
                 )
                 predicted_answers = [
@@ -87,9 +102,15 @@ class QasperBaseline(Model):
                 output_dict["predicted_answers"] = predicted_answers
                 gold_answers = [instance_metadata["all_answers"] for instance_metadata in metadata]
                 for predicted_answer, gold_answer in zip(predicted_answers, gold_answers):
-                    self._answer_metrics(predicted_answer, gold_answer)
+                    f1s_with_types = []
+                    for gold_answer_info in gold_answer:
+                        f1 = squad.compute_f1(predicted_answer, gold_answer_info['text'])
+                        f1s_with_types.append((f1, gold_answer_info['type']))
 
-        if evidence is not None:
+                    max_f1, max_f1_answer_type = sorted(f1s_with_types, key=lambda x: x[0])[-1]
+                    self._answer_f1(max_f1)
+                    self._answer_f1_by_type[max_f1_answer_type](max_f1)
+        if self._use_evidence_scaffold and evidence is not None:
             paragraph_indices = paragraph_indices.squeeze(-1)
             encoded_paragraph_tokens = util.batched_index_select(encoded_tokens.contiguous(), paragraph_indices)
             evidence_logits = self.evidence_feedforward(encoded_paragraph_tokens)
@@ -106,6 +127,7 @@ class QasperBaseline(Model):
             )
             loss_fn = torch.nn.CrossEntropyLoss(weight=weights)
             evidence_loss = loss_fn(evidence_logits.view(-1, 2), evidence.view(-1))
+            self._evidence_loss(float(evidence_loss.detach().cpu()))
             if loss is None:
                 loss = evidence_loss
             else:
@@ -117,8 +139,8 @@ class QasperBaseline(Model):
                 for evidence_f1 in self._compute_evidence_f1(predicted_evidence_indices,
                                                              gold_evidence_indices):
                     self._evidence_f1(evidence_f1)
-
-        return {"loss": loss}
+        output_dict["loss"] = loss
+        return output_dict
 
     @staticmethod
     def _compute_evidence_f1(
@@ -129,9 +151,15 @@ class QasperBaseline(Model):
         for instance_predicted, instance_gold in zip(predicted_evidence_indices, gold_evidence_indices):
             instance_f1s = []
             for gold in instance_gold:
-                true_positives = sum([i and j for i, j in zip(instance_predicted, gold)])
-                precision = true_positives / sum(instance_predicted) if sum(instance_predicted) != 0 else 0.0
-                recall = true_positives / sum(gold) if sum(gold) != 0 else 0.0
+                # If the document was truncated to fit in the model, the gold will be longer than the 
+                # predicted indices.
+                predicted = instance_predicted + [0] * (len(gold) - len(instance_predicted))
+                true_positives = sum([i and j for i, j in zip(predicted, gold)])
+                if sum(predicted) == 0:
+                    precision = 1.0 if sum(gold) == 0 else 0.0
+                else:
+                    precision = true_positives / sum(predicted)
+                recall = true_positives / sum(gold) if sum(gold) != 0 else 1.0
                 if precision + recall == 0:
                     instance_f1s.append(0.0)
                 else:
@@ -141,6 +169,19 @@ class QasperBaseline(Model):
 
     @overrides
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
-        _, f1_score = self._answer_metrics.get_metric(reset)
+        f1_score = self._answer_f1.get_metric(reset)
+        extractive_f1_score = self._answer_f1_by_type[AnswerType.EXTRACTIVE].get_metric(reset)
+        abstractive_f1_score = self._answer_f1_by_type[AnswerType.ABSTRACTIVE].get_metric(reset)
+        boolean_f1_score = self._answer_f1_by_type[AnswerType.BOOLEAN].get_metric(reset)
+        none_f1_score = self._answer_f1_by_type[AnswerType.NONE].get_metric(reset)
         evidence_f1 = self._evidence_f1.get_metric(reset)
-        return {"answer_f1": f1_score, "evidence_f1": evidence_f1}
+        evidence_loss = self._evidence_loss.get_metric(reset)
+        return {
+            "answer_f1": f1_score,
+            "extr_f1": extractive_f1_score,
+            "abstr_f1": abstractive_f1_score,
+            "bool_f1": boolean_f1_score,
+            "none_f1": none_f1_score,
+            "evidence_f1": evidence_f1,
+            "evidence_loss": evidence_loss
+        }

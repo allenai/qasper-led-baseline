@@ -1,6 +1,7 @@
 import json
 import logging
 import random
+from enum import Enum
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Iterable, Tuple
 
@@ -25,6 +26,13 @@ from allennlp.data.tokenizers import Token, PretrainedTransformerTokenizer
 
 
 logger = logging.getLogger(__name__)
+
+
+class AnswerType(Enum):
+    EXTRACTIVE = 1
+    ABSTRACTIVE = 2
+    BOOLEAN = 3
+    NONE = 4
 
 
 @DatasetReader.register("qasper")
@@ -76,7 +84,7 @@ class QasperReader(DatasetReader):
 
     def __init__(
         self,
-        transformer_model_name: str = "allenai/led-large-16384",
+        transformer_model_name: str = "allenai/led-base-16384",
         max_query_length: int = 128,
         max_document_length: int = 16384,
         paragraph_separator: Optional[str] = "</s>",
@@ -124,6 +132,8 @@ class QasperReader(DatasetReader):
         with open_compressed(file_path) as dataset_file:
             dataset = json.load(dataset_file)
         for article_id, article in self.shard_iterable(dataset.items()):
+            if not article["full_text"]:
+                continue
             article["article_id"] = article_id
             yield from self._article_to_instances(article)
         self._log_stats()
@@ -158,10 +168,10 @@ class QasperReader(DatasetReader):
             all_evidence = []
             all_evidence_masks = []
             for answer_annotation in question_answer["answers"]:
-                answer, evidence = self._extract_answer_and_evidence(
+                answer, evidence, answer_type = self._extract_answer_and_evidence(
                     answer_annotation["answer"]
                 )
-                all_answers.append(answer)
+                all_answers.append({"text": answer, "type": answer_type})
                 all_evidence.append(evidence)
                 evidence_mask = self._get_evidence_mask(evidence, paragraphs)
                 all_evidence_masks.append(evidence_mask)
@@ -173,7 +183,7 @@ class QasperReader(DatasetReader):
                 "all_evidence": all_evidence,
                 "all_evidence_masks": all_evidence_masks,
             }
-            answers_to_yield = all_answers if self._for_training else [all_answers[0]]
+            answers_to_yield = [x['text'] for x in all_answers] if self._for_training else [all_answers[0]['text']]
             evidence_masks_to_yield = all_evidence_masks if self._for_training else [all_evidence_masks[0]]
             for answer, evidence_mask in zip(answers_to_yield, evidence_masks_to_yield):
                 yield self.text_to_instance(
@@ -192,17 +202,14 @@ class QasperReader(DatasetReader):
         Takes a list of evidence snippets, and the list of all the paragraphs from the
         paper, and returns a list of indices of the paragraphs that contain the evidence.
         """
-        if not evidence:
-            return []
         evidence_mask = []
-        for i, paragraph in enumerate(paragraphs):
+        for paragraph in paragraphs:
             for evidence_str in evidence:
                 if evidence_str in paragraph:
                     evidence_mask.append(1)
                     break
             else:
                 evidence_mask.append(0)
-
         return evidence_mask
 
     @overrides
@@ -219,21 +226,44 @@ class QasperReader(DatasetReader):
         fields = {}
 
         tokenized_question = self._tokenizer.tokenize(question)
-        if not tokenized_context or not paragraph_start_indices:
+        if len(tokenized_question) > self.max_query_length:
+            self._stats["number of truncated questions"] += 1
+            tokenized_question = tokenized_question[:self.max_query_length]
+
+        if tokenized_context is None or paragraph_start_indices is None:
             tokenized_context, paragraph_start_indices = self._tokenize_paragraphs(
                 paragraphs
             )
 
-        # make the question field
-        question_field = TextField(
-            self._tokenizer.add_special_tokens(tokenized_question, tokenized_context),
+        allowed_context_length = (
+                self.max_document_length
+                - len(tokenized_question)
+                - len(self._tokenizer.sequence_pair_start_tokens)
+                - 1  # for paragraph seperator
         )
+        if len(tokenized_context) > allowed_context_length:
+            self._stats["number of truncated contexts"] += 1
+            tokenized_context = tokenized_context[:allowed_context_length]
+            paragraph_start_indices = [index for index in paragraph_start_indices
+                                       if index <= allowed_context_length]
+            if evidence_mask is not None:
+                num_paragraphs = len(paragraph_start_indices)
+                evidence_mask = evidence_mask[:num_paragraphs]
+
+        # This is what Iz's code does.
+        question_and_context = (
+            self._tokenizer.sequence_pair_start_tokens
+            + tokenized_question
+            + [Token(self._paragraph_separator)]
+            + tokenized_context
+        )
+        # make the question field
+        question_field = TextField(question_and_context)
         fields["question_with_context"] = question_field
 
         start_of_context = (
             len(self._tokenizer.sequence_pair_start_tokens)
             + len(tokenized_question)
-            + len(self._tokenizer.sequence_pair_mid_tokens)
         )
 
         paragraph_indices_list = [x + start_of_context for x in paragraph_start_indices]
@@ -241,6 +271,7 @@ class QasperReader(DatasetReader):
         paragraph_indices_field = ListField(
             [IndexField(x, question_field) for x in paragraph_indices_list]
         )
+
         fields["paragraph_indices"] = paragraph_indices_field
 
         if self._include_global_attention_mask:
@@ -257,7 +288,9 @@ class QasperReader(DatasetReader):
             fields["evidence"] = evidence_field
 
         if answer:
-            fields["answer"] = TextField(self._tokenizer.tokenize(answer))
+            fields["answer"] = TextField(
+                self._tokenizer.add_special_tokens(self._tokenizer.tokenize(answer))
+            )
 
         # make the metadata
         metadata = {
@@ -307,25 +340,30 @@ class QasperReader(DatasetReader):
             self._stats["multiple_evidence_spans_count"] += 1
 
         answer_string = None
+        answer_type = None
         if answer.get("unanswerable", False):
             self._stats["unanswerable questions"] += 1
             answer_string = "Unanswerable"
+            answer_type = AnswerType.NONE
         elif answer.get("yes_no") is not None:
             self._stats["yes/no questions"] += 1
             answer_string = "Yes" if answer["yes_no"] else "No"
+            answer_type = AnswerType.BOOLEAN
         elif answer.get("extractive_spans", []):
             self._stats["extractive questions"] += 1
             if len(answer["extractive_spans"]) > 1:
                 self._stats["extractive questions with multiple spans"] += 1
             answer_string = ", ".join(answer["extractive_spans"])
+            answer_type = AnswerType.EXTRACTIVE
         else:
             answer_string = answer.get("free_form_answer", "")
             if not answer_string:
                 self._stats["questions with empty answer"] += 1
             else:
                 self._stats["freeform answers"] += 1
+            answer_type = AnswerType.ABSTRACTIVE
 
-        return answer_string, evidence_spans
+        return answer_string, evidence_spans, answer_type
 
     @staticmethod
     def _get_paragraphs_from_full_text(full_text: List[JsonDict]) -> List[str]:
@@ -333,6 +371,8 @@ class QasperReader(DatasetReader):
         for section_info in full_text:
             # TODO (pradeep): It is possible there are other discrepancies between plain text, LaTeX and HTML.
             # Do a thorough investigation and add tests.
+            if section_info["section_name"] is not None:
+                paragraphs.append(section_info["section_name"])
             for paragraph in section_info["paragraphs"]:
                 paragraph_text = paragraph.replace("\n", " ").strip()
                 if paragraph_text:
