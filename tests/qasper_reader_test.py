@@ -89,32 +89,3 @@ class TestQasperReader:
 
         answer_text = [t.text for t in instances[3].fields["answer"].tokens]
         assert answer_text == ["<s>", "Conclusion", "Ġparagraph", "</s>"]
-
-    def test_instance_indexes_correctly(self):
-        # Tests the indexed instances against the values input to the LED model in the
-        # original qasper_baselines code, accounting for two differences
-        # 1. The input_ids need to be pre-padded to window size (1024) in the original
-        # longformer code, but the HF code does that internally now.
-        # 2. The answer ids need to be shifted right, which the HF code does internally also.
-        reader = QasperReader()
-        vocabulary = Vocabulary.empty()
-        instances = ensure_list(reader.read("fixtures/data/qasper_sample_tiny.json"))
-        instance = instances[0]
-        instance.index_fields(vocabulary)
-        tensor_dict = instance.as_tensor_dict()
-        input_ids = tensor_dict['question_with_context']['tokens']['token_ids']
-        assert input_ids.tolist() == [
-            0, 2264, 16, 5, 5018, 36912, 17505, 116, 2, 46576, 2, 250, 765, 17818,
-            2, 21518, 22845, 17818,2, 22816, 6011, 2, 3609, 10679, 17818, 2, 41895,
-            7878, 16410, 2, 6323,  5448, 2, 41895,  7878, 16410,  4832, 38304, 6189,
-            21528, 42419, 2, 47967, 17818, 634,  5018, 36912, 17505, 2, 48984, 2,
-            48984, 17818
-        ]
-        answer_ids = tensor_dict['answer']['tokens']['token_ids']
-        assert answer_ids.tolist() == [0, 102, 32644, 2]
-        expected_attention_mask = [
-            2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 2, 1, 1, 1, 2, 1, 1, 1, 2, 1, 1, 2, 1, 1,
-            1, 2, 1, 1, 1, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1,
-            2, 1, 2, 1, 1
-        ]
-        assert tensor_dict['global_attention_mask'].tolist() == [x == 2 for x in expected_attention_mask]
