@@ -75,6 +75,11 @@ class QasperReader(DatasetReader):
         If `True`, we will include a field in the output containing a global attention mask for use
         with a longformer, which is `True` for all starts of paragraphs and question tokens, so
         attention will always be placed on those tokens.
+    context : `str` (default = `full_text`)
+        To reproduce the baselines from the paper that do not have access to the full text of the paper
+        you can change this argument. Options are `question_only`, `question_and_abstract`,
+        `question_and_introduction`, `question_and_evidence`. If this is set to `question_andevidence`,
+        the reader will ignore answers that are `None`, and those that are boolean.
     for_training : `bool` (default = False)
         This flag affects how questions with multiple answers are handled. When set to True, this flag
         causes the reader to yield one instance per answer. When set to False, the instance will contain
@@ -89,6 +94,7 @@ class QasperReader(DatasetReader):
         max_document_length: int = 16384,
         paragraph_separator: Optional[str] = "</s>",
         include_global_attention_mask: bool = True,
+        context: str = "full_text",
         for_training: bool = False,
         **kwargs,
     ) -> None:
@@ -109,6 +115,15 @@ class QasperReader(DatasetReader):
         self.max_query_length = max_query_length
         self.max_document_length = max_document_length
         self._paragraph_separator = paragraph_separator
+        if context not in [
+            "full_text",
+            "question_only",
+            "question_and_abstract",
+            "question_and_introduction",
+            "question_and_evidence"
+        ]:
+            raise RuntimeError(f"Unrecognized context type: {context}")
+        self._context = context
         self._for_training = for_training
         self._stats = defaultdict(int)
 
@@ -152,10 +167,14 @@ class QasperReader(DatasetReader):
             logger.info("%s: %d", key, value)
 
     def _article_to_instances(self, article: Dict[str, Any]) -> Iterable[Instance]:
-        paragraphs = self._get_paragraphs_from_full_text(article["full_text"])
-        tokenized_context, paragraph_start_indices = self._tokenize_paragraphs(
-            paragraphs
-        )
+        paragraphs = self._get_paragraphs_from_article(article)
+        tokenized_context = None
+        paragraph_start_indices = None
+        # If the context is evidence, text_to_instance will make the appropriate tokenized_context.
+        if not self._context == "question_and_evidence":
+            tokenized_context, paragraph_start_indices = self._tokenize_paragraphs(
+                paragraphs
+            )
 
         self._stats["number of documents"] += 1
         for question_answer in article["qas"]:
@@ -185,7 +204,10 @@ class QasperReader(DatasetReader):
             }
             answers_to_yield = [x['text'] for x in all_answers] if self._for_training else [all_answers[0]['text']]
             evidence_masks_to_yield = all_evidence_masks if self._for_training else [all_evidence_masks[0]]
-            for answer, evidence_mask in zip(answers_to_yield, evidence_masks_to_yield):
+            evidence_to_yield = all_evidence if self._for_training else [all_evidence[0]]
+            for answer, evidence, evidence_mask in zip(answers_to_yield, evidence_to_yield, evidence_masks_to_yield):
+                if self._context == "question_and_evidence" and answer in ['Unanswerable', 'Yes', 'No']:
+                    continue
                 yield self.text_to_instance(
                     question_answer["question"],
                     paragraphs,
@@ -193,6 +215,7 @@ class QasperReader(DatasetReader):
                     paragraph_start_indices,
                     evidence_mask,
                     answer,
+                    evidence,
                     additional_metadata,
                 )
 
@@ -221,6 +244,7 @@ class QasperReader(DatasetReader):
         paragraph_start_indices: List[int] = None,
         evidence_mask: List[int] = None,
         answer: str = None,
+        evidence: List[str] = None,
         additional_metadata: Dict[str, Any] = None,
     ) -> Instance:
         fields = {}
@@ -231,9 +255,14 @@ class QasperReader(DatasetReader):
             tokenized_question = tokenized_question[:self.max_query_length]
 
         if tokenized_context is None or paragraph_start_indices is None:
-            tokenized_context, paragraph_start_indices = self._tokenize_paragraphs(
-                paragraphs
-            )
+            if self._context == "question_and_evidence":
+                tokenized_context, paragraph_start_indices = self._tokenize_paragraphs(
+                    evidence
+                )
+            else:
+                tokenized_context, paragraph_start_indices = self._tokenize_paragraphs(
+                    paragraphs
+                )
 
         allowed_context_length = (
                 self.max_document_length
@@ -269,7 +298,8 @@ class QasperReader(DatasetReader):
         paragraph_indices_list = [x + start_of_context for x in paragraph_start_indices]
 
         paragraph_indices_field = ListField(
-            [IndexField(x, question_field) for x in paragraph_indices_list]
+            [IndexField(x, question_field) for x in paragraph_indices_list] if paragraph_indices_list else
+            [IndexField(-1, question_field)]
         )
 
         fields["paragraph_indices"] = paragraph_indices_field
@@ -365,8 +395,12 @@ class QasperReader(DatasetReader):
 
         return answer_string, evidence_spans, answer_type
 
-    @staticmethod
-    def _get_paragraphs_from_full_text(full_text: List[JsonDict]) -> List[str]:
+    def _get_paragraphs_from_article(self, article: JsonDict) -> List[str]:
+        if self._context == "question_only":
+            return []
+        if self._context == "question_and_abstract":
+            return [article["abstract"]]
+        full_text = article["full_text"]
         paragraphs = []
         for section_info in full_text:
             # TODO (pradeep): It is possible there are other discrepancies between plain text, LaTeX and HTML.
@@ -377,4 +411,7 @@ class QasperReader(DatasetReader):
                 paragraph_text = paragraph.replace("\n", " ").strip()
                 if paragraph_text:
                     paragraphs.append(paragraph_text)
+            if self._context == "question_and_introduction":
+                # Assuming the first section is the introduction and stopping here.
+                break
         return paragraphs
