@@ -89,3 +89,130 @@ class TestQasperReader:
 
         answer_text = [t.text for t in instances[3].fields["answer"].tokens]
         assert answer_text == ["<s>", "Conclusion", "Ġparagraph", "</s>"]
+
+    def test_read_from_file_question_only(self):
+        reader = QasperReader(context="question_only")
+        instances = ensure_list(reader.read("fixtures/data/qasper_sample_small.json"))
+        assert len(instances) == 4
+
+        instance = instances[1]
+        assert set(instance.fields.keys()) == {
+            "question_with_context",
+            "paragraph_indices",
+            "global_attention_mask",
+            "evidence",
+            "answer",
+            "metadata",
+        }
+
+        token_text = [t.text for t in instance.fields["question_with_context"].tokens]
+        assert len(token_text) == 6
+        assert token_text == [
+            '<s>',
+            'Are',
+            'Ġthere',
+            'Ġthree',
+            '?',
+            '</s>'
+        ]
+
+    def test_read_from_file_question_and_abstract(self):
+        reader = QasperReader(context="question_and_abstract")
+        instances = ensure_list(reader.read("fixtures/data/qasper_sample_small.json"))
+        assert len(instances) == 4
+
+        instance = instances[1]
+        assert set(instance.fields.keys()) == {
+            "question_with_context",
+            "paragraph_indices",
+            "global_attention_mask",
+            "evidence",
+            "answer",
+            "metadata",
+        }
+
+        token_text = [t.text for t in instance.fields["question_with_context"].tokens]
+        assert len(token_text) == 13
+        assert token_text == [
+            '<s>',
+            'Are',
+            'Ġthere',
+            'Ġthree',
+            '?',
+            '</s>',
+            'This',
+            'Ġis',
+            'Ġthe',
+            'Ġabstract',
+            'Ġof',
+            'Ġthe',
+            'Ġpaper',
+        ]
+
+    def test_read_from_file_question_and_introduction(self):
+        reader = QasperReader(context="question_and_introduction")
+        instances = ensure_list(reader.read("fixtures/data/qasper_sample_small.json"))
+        assert len(instances) == 4
+
+        instance = instances[1]
+        assert set(instance.fields.keys()) == {
+            "question_with_context",
+            "paragraph_indices",
+            "global_attention_mask",
+            "evidence",
+            "answer",
+            "metadata",
+        }
+
+        token_text = [t.text for t in instance.fields["question_with_context"].tokens]
+        assert len(token_text) == 15
+        assert token_text == [
+            '<s>',
+            'Are',
+            'Ġthere',
+            'Ġthree',
+            '?',
+            '</s>',
+            'Introduction',
+            '</s>',
+            'A',
+            'Ġshort',
+            'Ġparagraph',
+            '</s>',
+            'Another',
+            'Ġintro',
+            'Ġparagraph']
+
+    def test_read_from_file_question_and_evidence(self):
+        reader = QasperReader(context="question_and_evidence")
+        instances = ensure_list(reader.read("fixtures/data/qasper_sample_small.json"))
+        # Yes/No and None answers are ignored.
+        assert len(instances) == 2  # instead of 4 for the other readers
+
+        instance = instances[1]
+        assert set(instance.fields.keys()) == {
+            "question_with_context",
+            "paragraph_indices",
+            "global_attention_mask",
+            "evidence",
+            "answer",
+            "metadata",
+        }
+
+        token_text = [t.text for t in instance.fields["question_with_context"].tokens]
+        assert len(token_text) == 13
+        assert token_text == [
+            '<s>',
+            'Is',
+            'Ġthis',
+            'Ġextract',
+            'ive',
+            '?',
+            '</s>',
+            'Method',
+            'Ġparagraph',
+            'Ġusing',
+            'Ġseed',
+            'Ġlex',
+            'icon',
+        ]
