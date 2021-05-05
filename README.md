@@ -32,7 +32,7 @@ If you do not have a GPU, you will need to set `cuda_device` to `-1`.
 Just set `use_evidence_scaffold` in the `model` section of the configuration to `false`.
 
 
-### Experiments on shorted contexts
+### Experiments on shorter contexts
 
 The paper also reports results of training and evaluating models given contexts shorter than the full text of the paper. Use the configuration file `training_config/led_base_smaller_context.jsonnet` for these experiments, and set the `context` field in the `dataset_reader` and `validation_dataset_reader` sections of the configuration to appropriate values. 
 
@@ -45,3 +45,5 @@ python scripts/evidence_retrieval_heuristic_baselines.py <PATH TO DEV DATA>
 ```
 
 You will need to install `sklearn` for this script.
+
+Feel free to report issues if you run into any.
