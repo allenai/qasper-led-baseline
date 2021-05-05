@@ -47,3 +47,7 @@ python scripts/evidence_retrieval_heuristic_baselines.py <PATH TO DEV DATA>
 You will need to install `sklearn` for this script.
 
 Feel free to report issues if you run into any.
+
+### Experiments with LED-large
+
+You can run these by changing the value of `transformer_model` variable to `allenai/led-large-16384`. Note that as stated in the paper, the `answer_f1` value will be very low (less than 20 F1 points).
