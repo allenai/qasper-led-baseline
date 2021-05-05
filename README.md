@@ -46,7 +46,7 @@ python scripts/evidence_retrieval_heuristic_baselines.py <PATH TO DEV DATA>
 
 You will need to install `sklearn` for this script.
 
-Feel free to report issues if you run into any.
+Feel free to open pull requests if find any thing that needs fixing.
 
 ### Experiments with LED-large
 
