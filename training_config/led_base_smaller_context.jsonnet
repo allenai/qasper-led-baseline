@@ -1,5 +1,5 @@
 local transformer_model = "allenai/led-base-16384";
-local epochs = 5;
+local epochs = 10;
 local batch_size = 1;
 local num_gradient_accumulation_steps = 2;
 
