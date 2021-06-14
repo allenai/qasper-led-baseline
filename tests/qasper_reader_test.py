@@ -38,7 +38,27 @@ class TestQasperReader:
             '</s>',
             'Another',
             'Ġintro',
-            'Ġparagraph']
+            'Ġparagraph'
+        ]
+
+        assert token_text[-15:] == [
+            'ĠPol',
+            'arity',
+            'ĠFunction',
+            '</s>',
+            'Method',
+            'Ġparagraph',
+            'Ġusing',
+            'Ġseed',
+            'Ġlex',
+            'icon',
+            '</s>',
+            'Conclusion',
+            '</s>',
+            'Conclusion',
+            'Ġparagraph',
+        ]
+
 
         assert len(instance["paragraph_indices"]) == 10
         # This is the first token after the separator for each paragraph.
