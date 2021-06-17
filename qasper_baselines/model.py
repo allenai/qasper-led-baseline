@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, List
 from overrides import overrides
 
@@ -14,6 +15,7 @@ from allennlp.training.metrics import Average
 from allennlp_models.rc.tools import squad
 
 from qasper_baselines.dataset_reader import AnswerType
+from sci_long_t5.model import LongT5Config, LongT5TokenizerFast, LongT5ForConditionalGeneration
 
 
 @Model.register("qasper_baseline")
@@ -27,6 +29,8 @@ class QasperBaseline(Model):
         gradient_checkpointing: bool = False,
         evidence_feedforward: FeedForward = None,
         use_evidence_scaffold: bool = True,
+        resume_model_dir: str = None,
+        resume_model_file: str = None,
         **kwargs
     ):
         super().__init__(vocab, **kwargs)
@@ -34,11 +38,30 @@ class QasperBaseline(Model):
         config.attention_dropout = attention_dropout
         config.attention_window = [attention_window_size] * len(config.attention_window)
         config.gradient_checkpointing = gradient_checkpointing
-        self.transformer = AutoModelForSeq2SeqLM.from_pretrained(transformer_model_name, config=config)
+        # self.transformer = AutoModelForSeq2SeqLM.from_pretrained(transformer_model_name, config=config)
+        # self.transformer = AutoModelForSeq2SeqLM.from_pretrained("/resume_model/arxiv-epoch=01-step=0-val_rouge1=0.4323.ckpt", config=config)
+        if resume_model_dir is not None:
+            led_model = torch.load(os.path.join(resume_model_dir, resume_model_file))
+            renamed_state_dict = {}
+            for k, v in led_model["state_dict"].items():
+                new_key = k.replace("model.led.", "")
+                renamed_state_dict[new_key] = v
+            self.transformer = AutoModelForSeq2SeqLM.from_pretrained(None, config=config, state_dict=renamed_state_dict)
+        else:
+            self.transformer = AutoModelForSeq2SeqLM.from_pretrained(transformer_model_name, config=config)
         self.tokenizer = AutoTokenizer.from_pretrained(
             transformer_model_name,
             add_special_tokens=False
         )
+
+        # config = LongT5Config.from_pretrained(model_args.model_name_or_path)
+        # model = LongT5ForConditionalGeneration.from_pretrained(model_args.model_name_or_path)
+        # tokenizer = LongT5TokenizerFast.from_pretrained(origin_model_name, block_size=config.block_size)
+
+        # config = LongT5Config.from_pretrained("/net/nfs2.s2-research/haokunl/exp_files/model_artifacts/longt5-base-a")
+        # self.transformer = LongT5ForConditionalGeneration.from_pretrained("/net/nfs2.s2-research/haokunl/exp_files/model_artifacts/longt5-base-a")
+        # self.tokenizer = LongT5TokenizerFast.from_pretrained("t5-base", block_size=config.block_size)
+
         if evidence_feedforward:
             self.evidence_feedforward = evidence_feedforward
             assert evidence_feedforward.get_output_dim() == 2

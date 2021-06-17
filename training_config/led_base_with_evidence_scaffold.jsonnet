@@ -1,14 +1,20 @@
 local transformer_model = "allenai/led-base-16384";
+# local transformer_model = "allenai/led-large-16384-arxiv";
+# local transformer_model = "allenai/led-large-16384";
 local epochs = 5;
 local batch_size = 1;
 local num_gradient_accumulation_steps = 2;
 
-local train_data_path = "TODO";
-local dev_data_path = "TODO";
+#local train_data_path = "TODO";
+#local dev_data_path = "TODO";
+local train_data_path = "/data/qasper-train-v0.1.json";
+local dev_data_path = "/data/qasper-dev-v0.1.json";
 
 local training_data_size = 2672;
 local num_gpus = 1;
 
+local resume_model_dir = None;
+local resume_model_file = None;
 
 {
     "dataset_reader": {
@@ -35,6 +41,8 @@ local num_gpus = 1;
 	"gradient_checkpointing": true,
 	"use_evidence_scaffold": true,
 	"attention_dropout": 0.1,
+	resume_model_dir: resume_model_dir,
+	resume_model_file: resume_model_file,
     },
     "data_loader": {
         "batch_size": batch_size,
