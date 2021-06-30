@@ -13,8 +13,8 @@ local dev_data_path = "/data/qasper-dev-v0.1.json";
 local training_data_size = 2672;
 local num_gpus = 1;
 
-local resume_model_dir = None;
-local resume_model_file = None;
+# local resume_model_dir = "/resume_model";
+# local resume_model_file = "arxiv-epoch=04-step=0-val_rouge1=0.0000-v1.ckpt";
 
 {
     "dataset_reader": {
@@ -22,6 +22,7 @@ local resume_model_file = None;
         "transformer_model_name": transformer_model,
 	"max_document_length": 15360,
 	"for_training": true,
+	"include_global_attention_on_para_indices": false
     },
     "validation_dataset_reader": {
         "type": "qasper",
@@ -39,10 +40,10 @@ local resume_model_file = None;
         "transformer_model_name": transformer_model,
 	"attention_window_size": 1536,
 	"gradient_checkpointing": true,
-	"use_evidence_scaffold": true,
+	"use_evidence_scaffold": false,
 	"attention_dropout": 0.1,
-	resume_model_dir: resume_model_dir,
-	resume_model_file: resume_model_file,
+	# "resume_model_dir": resume_model_dir,
+	# "resume_model_file": resume_model_file,
     },
     "data_loader": {
         "batch_size": batch_size,

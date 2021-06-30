@@ -15,7 +15,7 @@ from allennlp.training.metrics import Average
 from allennlp_models.rc.tools import squad
 
 from qasper_baselines.dataset_reader import AnswerType
-from sci_long_t5.model import LongT5Config, LongT5TokenizerFast, LongT5ForConditionalGeneration
+# from sci_long_t5.model import LongT5Config, LongT5TokenizerFast, LongT5ForConditionalGeneration
 
 
 @Model.register("qasper_baseline")

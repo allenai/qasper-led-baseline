@@ -94,6 +94,7 @@ class QasperReader(DatasetReader):
         max_document_length: int = 16384,
         paragraph_separator: Optional[str] = "</s>",
         include_global_attention_mask: bool = True,
+        include_global_attention_on_para_indices: bool = True,
         context: str = "full_text",
         for_training: bool = False,
         **kwargs,
@@ -109,6 +110,7 @@ class QasperReader(DatasetReader):
         )
 
         self._include_global_attention_mask = include_global_attention_mask
+        self._include_global_attention_on_para_indices = include_global_attention_on_para_indices
         self._token_indexers = {
             "tokens": PretrainedTransformerIndexer(transformer_model_name)
         }
@@ -307,7 +309,10 @@ class QasperReader(DatasetReader):
         if self._include_global_attention_mask:
             # We need to make a global attention array. We'll use all the paragraph indices and the
             # indices of question tokens.
-            mask_indices = set(list(range(start_of_context)) + paragraph_indices_list)
+            if self._include_global_attention_on_para_indices:
+                mask_indices = set(list(range(start_of_context)) + paragraph_indices_list)
+            else:
+                mask_indices = set(list(range(start_of_context)))
             mask = [
                 True if i in mask_indices else False for i in range(len(question_field))
             ]
