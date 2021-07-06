@@ -29,6 +29,7 @@ class QasperBaseline(Model):
         gradient_checkpointing: bool = False,
         evidence_feedforward: FeedForward = None,
         use_evidence_scaffold: bool = True,
+        per_reference_level_metrics: bool = False,
         resume_model_dir: str = None,
         resume_model_file: str = None,
         **kwargs
@@ -38,8 +39,6 @@ class QasperBaseline(Model):
         config.attention_dropout = attention_dropout
         config.attention_window = [attention_window_size] * len(config.attention_window)
         config.gradient_checkpointing = gradient_checkpointing
-        # self.transformer = AutoModelForSeq2SeqLM.from_pretrained(transformer_model_name, config=config)
-        # self.transformer = AutoModelForSeq2SeqLM.from_pretrained("/resume_model/arxiv-epoch=01-step=0-val_rouge1=0.4323.ckpt", config=config)
         if resume_model_dir is not None:
             led_model = torch.load(os.path.join(resume_model_dir, resume_model_file))
             renamed_state_dict = {}
@@ -70,6 +69,7 @@ class QasperBaseline(Model):
                 self.transformer.config.hidden_size, 2
             )
         self._use_evidence_scaffold = use_evidence_scaffold
+        self._per_reference_level_metrics = per_reference_level_metrics
         self._answer_f1 = Average()
         self._answer_f1_by_type = {answer_type: Average() for answer_type in AnswerType}
         self._evidence_f1 = Average()
@@ -130,9 +130,15 @@ class QasperBaseline(Model):
                         f1 = squad.compute_f1(predicted_answer, gold_answer_info['text'])
                         f1s_with_types.append((f1, gold_answer_info['type']))
 
-                    max_f1, max_f1_answer_type = sorted(f1s_with_types, key=lambda x: x[0])[-1]
-                    self._answer_f1(max_f1)
-                    self._answer_f1_by_type[max_f1_answer_type](max_f1)
+                        if self._per_reference_level_metrics:
+                            self._answer_f1(f1)
+                            self._answer_f1_by_type[gold_answer_info['type']](f1)
+
+                    if not self._per_reference_level_metrics:
+                        max_f1, max_f1_answer_type = sorted(f1s_with_types, key=lambda x: x[0])[-1]
+                        self._answer_f1(max_f1)
+                        self._answer_f1_by_type[max_f1_answer_type](max_f1)
+
         if self._use_evidence_scaffold and evidence is not None:
             paragraph_indices = paragraph_indices.squeeze(-1)
             encoded_paragraph_tokens = util.batched_index_select(encoded_tokens.contiguous(), paragraph_indices)
@@ -161,7 +167,11 @@ class QasperBaseline(Model):
                                          for instance_metadata in metadata]
                 for evidence_f1 in self._compute_evidence_f1(predicted_evidence_indices,
                                                              gold_evidence_indices):
-                    self._evidence_f1(evidence_f1)
+                    if self._per_reference_level_metrics:
+                        for ref_evidence_f1 in evidence_f1:
+                            self._evidence_f1(ref_evidence_f1)
+                    else:
+                        self._evidence_f1(max(evidence_f1))
         output_dict["loss"] = loss
         return output_dict
 
@@ -169,7 +179,7 @@ class QasperBaseline(Model):
     def _compute_evidence_f1(
         predicted_evidence_indices: List[List[int]],
         gold_evidence_indices: List[List[List[int]]]
-    ) -> List[float]:
+    ) -> List[List[float]]:
         f1s = []
         for instance_predicted, instance_gold in zip(predicted_evidence_indices, gold_evidence_indices):
             instance_f1s = []
@@ -187,7 +197,11 @@ class QasperBaseline(Model):
                     instance_f1s.append(0.0)
                 else:
                     instance_f1s.append(2 * precision * recall / (precision + recall))
-            f1s.append(max(instance_f1s))
+            f1s.append(instance_f1s)
+            # if self._per_reference_level_metrics:
+            #     f1s.extend(instance_f1s)
+            # else:
+            #     f1s.append(max(instance_f1s))
         return f1s
 
     @overrides
