@@ -95,6 +95,7 @@ class QasperReader(DatasetReader):
         paragraph_separator: Optional[str] = "</s>",
         include_global_attention_mask: bool = True,
         include_global_attention_on_para_indices: bool = True,
+        insert_extra_sep_for_null: bool = False,
         context: str = "full_text",
         for_training: bool = False,
         **kwargs,
@@ -111,6 +112,7 @@ class QasperReader(DatasetReader):
 
         self._include_global_attention_mask = include_global_attention_mask
         self._include_global_attention_on_para_indices = include_global_attention_on_para_indices
+        self._insert_extra_sep_for_null = insert_extra_sep_for_null
         self._token_indexers = {
             "tokens": PretrainedTransformerIndexer(transformer_model_name)
         }
@@ -266,11 +268,14 @@ class QasperReader(DatasetReader):
                     paragraphs
                 )
 
+        no_para_sep = 1
+        if self._insert_extra_sep_for_null:
+            no_para_sep += 1
         allowed_context_length = (
                 self.max_document_length
                 - len(tokenized_question)
                 - len(self._tokenizer.sequence_pair_start_tokens)
-                - 1  # for paragraph seperator
+                - no_para_sep  # for paragraph seperator
         )
         if len(tokenized_context) > allowed_context_length:
             self._stats["number of truncated contexts"] += 1
@@ -281,23 +286,38 @@ class QasperReader(DatasetReader):
                 num_paragraphs = len(paragraph_start_indices)
                 evidence_mask = evidence_mask[:num_paragraphs]
 
-        # This is what Iz's code does.
+        # # # # This is what Iz's code does.
         question_and_context = (
-            self._tokenizer.sequence_pair_start_tokens
-            + tokenized_question
-            + [Token(self._paragraph_separator)]
-            + tokenized_context
+                self._tokenizer.sequence_pair_start_tokens
+                + tokenized_question
+        )
+        if self._insert_extra_sep_for_null:
+            question_and_context += (
+                 [Token(self._paragraph_separator)]
+            )
+        question_and_context += (
+                [Token(self._paragraph_separator)]
+                + tokenized_context
         )
         # make the question field
         question_field = TextField(question_and_context)
         fields["question_with_context"] = question_field
 
         start_of_context = (
-            len(self._tokenizer.sequence_pair_start_tokens)
-            + len(tokenized_question)
+                len(self._tokenizer.sequence_pair_start_tokens)
+                + len(tokenized_question)
         )
+        if self._insert_extra_sep_for_null:
+            paragraph_indices_list = [start_of_context]+[x + start_of_context + 1 for x in paragraph_start_indices]
+        else:
+            paragraph_indices_list = [0]+[x + start_of_context for x in paragraph_start_indices]
 
-        paragraph_indices_list = [x + start_of_context for x in paragraph_start_indices]
+        if evidence_mask is not None:
+            evidence_mask = [1]+evidence_mask
+            # if sum(evidence_mask) == 0:
+            #     evidence_mask = [1]+evidence_mask
+            # else:
+            #     evidence_mask = [0]+evidence_mask
 
         paragraph_indices_field = ListField(
             [IndexField(x, question_field) for x in paragraph_indices_list] if paragraph_indices_list else

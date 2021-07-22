@@ -8,8 +8,11 @@ local num_gradient_accumulation_steps = 2;
 #local train_data_path = "TODO";
 #local dev_data_path = "TODO";
 
-local train_data_path = "/data/qasper-train-v0.1.json";
-local dev_data_path = "/data/qasper-dev-v0.1.json";
+# local train_data_path = "/data/qasper-train-v0.1.json";
+# local dev_data_path = "/data/qasper-dev-v0.1.json";
+
+local train_data_path = "/Users/vidhisha/Research/qasper-train-dev-v0.1/qasper-train-v0.1.json";
+local dev_data_path = "/Users/vidhisha/Research/qasper-train-dev-v0.1/qasper-dev-v0.1.json";
 
 local training_data_size = 2672;
 local num_gpus = 1;
@@ -23,7 +26,6 @@ local num_gpus = 1;
         "transformer_model_name": transformer_model,
 	"max_document_length": 15360,
 	"for_training": true,
-	"insert_extra_sep_for_null": true,
 	"include_global_attention_on_para_indices": true
     },
     "validation_dataset_reader": {
@@ -31,7 +33,6 @@ local num_gpus = 1;
         "transformer_model_name": transformer_model,
 	"max_document_length": 15360,
 	"for_training": false,
-	"insert_extra_sep_for_null": true,
 	"include_global_attention_on_para_indices": true
     },
     "train_data_path": train_data_path,
@@ -45,8 +46,8 @@ local num_gpus = 1;
 	"attention_window_size": 1536,
 	"gradient_checkpointing": true,
 	"use_only_evidence_loss": true,
-    "use_evidence_scaffold": true,
-    "use_margin_loss_for_evidence": true,
+	"use_evidence_scaffold": true,
+	"use_margin_loss_for_evidence": true,
 	"attention_dropout": 0.5,
 	"per_reference_level_metrics": false,
 	#"resume_model_dir": resume_model_dir,
@@ -79,7 +80,7 @@ local num_gpus = 1;
       "validation_metric": "+evidence_f1",
       "enable_default_callbacks": false,
       "use_amp": false,
-      "cuda_device": 0,
+      "cuda_device": -1,
     },
     "pytorch_seed": 15371,
 }

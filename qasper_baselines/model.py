@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Any, Dict, List
 from overrides import overrides
 
@@ -17,6 +18,7 @@ from allennlp_models.rc.tools import squad
 from qasper_baselines.dataset_reader import AnswerType
 # from sci_long_t5.model import LongT5Config, LongT5TokenizerFast, LongT5ForConditionalGeneration
 
+logger = logging.getLogger(__name__)
 
 @Model.register("qasper_baseline")
 class QasperBaseline(Model):
@@ -28,7 +30,9 @@ class QasperBaseline(Model):
         attention_window_size: int = 1024,
         gradient_checkpointing: bool = False,
         evidence_feedforward: FeedForward = None,
+        use_only_evidence_loss: bool = False,
         use_evidence_scaffold: bool = True,
+        use_margin_loss_for_evidence: bool = False,
         per_reference_level_metrics: bool = False,
         resume_model_dir: str = None,
         resume_model_file: str = None,
@@ -53,27 +57,27 @@ class QasperBaseline(Model):
             add_special_tokens=False
         )
 
-        # config = LongT5Config.from_pretrained(model_args.model_name_or_path)
-        # model = LongT5ForConditionalGeneration.from_pretrained(model_args.model_name_or_path)
-        # tokenizer = LongT5TokenizerFast.from_pretrained(origin_model_name, block_size=config.block_size)
-
-        # config = LongT5Config.from_pretrained("/net/nfs2.s2-research/haokunl/exp_files/model_artifacts/longt5-base-a")
-        # self.transformer = LongT5ForConditionalGeneration.from_pretrained("/net/nfs2.s2-research/haokunl/exp_files/model_artifacts/longt5-base-a")
-        # self.tokenizer = LongT5TokenizerFast.from_pretrained("t5-base", block_size=config.block_size)
-
         if evidence_feedforward:
             self.evidence_feedforward = evidence_feedforward
             assert evidence_feedforward.get_output_dim() == 2
         else:
-            self.evidence_feedforward = torch.nn.Linear(
-                self.transformer.config.hidden_size, 2
-            )
+            if use_margin_loss_for_evidence:
+                self.evidence_feedforward = torch.nn.Linear(
+                    self.transformer.config.hidden_size, 1
+                )
+            else:
+                self.evidence_feedforward = torch.nn.Linear(
+                    self.transformer.config.hidden_size, 2
+                )
+        self._use_only_evidence_loss = use_only_evidence_loss
         self._use_evidence_scaffold = use_evidence_scaffold
+        self._use_margin_loss_for_evidence = use_margin_loss_for_evidence
         self._per_reference_level_metrics = per_reference_level_metrics
         self._answer_f1 = Average()
         self._answer_f1_by_type = {answer_type: Average() for answer_type in AnswerType}
         self._evidence_f1 = Average()
         self._evidence_loss = Average()
+        self._train_evidence_logit_thresh = Average()
 
     def forward(
         self,
@@ -154,15 +158,50 @@ class QasperBaseline(Model):
                 device=evidence_logits.device,
                 dtype=evidence_logits.dtype,
             )
-            loss_fn = torch.nn.CrossEntropyLoss(weight=weights)
-            evidence_loss = loss_fn(evidence_logits.view(-1, 2), evidence.view(-1))
-            self._evidence_loss(float(evidence_loss.detach().cpu()))
+            if self._use_margin_loss_for_evidence:
+                positive_example_indices = (evidence == 1).nonzero()[:, 1].unsqueeze(0)
+                positive_example_scores = util.batched_index_select(evidence_logits, positive_example_indices).squeeze(0)
+                min_positive_score = torch.min(positive_example_scores).unsqueeze(0)
+
+                negative_example_indices = (evidence == 0).nonzero()[:, 1].unsqueeze(0)
+                negative_example_scores = util.batched_index_select(evidence_logits, negative_example_indices).squeeze(0)
+                max_negative_score = torch.max(negative_example_scores).unsqueeze(0)
+
+                if self.training:
+                    min_positive_index = positive_example_indices[:, torch.argmin(positive_example_scores)]
+                    evidence_probs = torch.softmax(evidence_logits, dim=1)
+                    min_positive_prob = evidence_probs[:, min_positive_index, :]
+                    max_negative_index = negative_example_indices[:, torch.argmin(negative_example_scores)]
+                    max_negative_prob = evidence_probs[:, max_negative_index, :]
+                    if max_negative_prob < min_positive_prob:
+                        self._train_evidence_logit_thresh(max_negative_prob+(min_positive_prob-max_negative_prob)/2)
+                    else:
+                        self._train_evidence_logit_thresh(min_positive_prob+(max_negative_prob-min_positive_prob)/2)
+
+                loss_fn = torch.nn.MarginRankingLoss(margin=0.5)
+                evidence_loss = loss_fn(min_positive_score, max_negative_score,
+                                        torch.ones(min_positive_score.size(), device=max_negative_score.device))
+                self._evidence_loss(float(evidence_loss.detach().cpu()))
+            else:
+                loss_fn = torch.nn.CrossEntropyLoss(weight=weights)
+                evidence_loss = loss_fn(evidence_logits.view(-1, 2), evidence.view(-1))
+                self._evidence_loss(float(evidence_loss.detach().cpu()))
+
             if loss is None:
                 loss = evidence_loss
             else:
-                loss = loss + evidence_loss
+                if self._use_only_evidence_loss:
+                    loss = evidence_loss
+                else:
+                    loss = loss + evidence_loss
             if not self.training:
-                predicted_evidence_indices = evidence_logits.argmax(dim=-1).tolist()
+                if self._use_margin_loss_for_evidence:
+                    # predicted_evidence_scores = evidence_logits.tolist()[1:]
+                    predicted_evidence_scores = evidence_probs[:, 1:, ].reshape((1, evidence.size(1)-1))
+                    threshold = self._train_evidence_logit_thresh.get_metric(reset=False)
+                    predicted_evidence_indices = (predicted_evidence_scores > threshold).int().tolist()
+                else:
+                    predicted_evidence_indices = evidence_logits.argmax(dim=-1).tolist()
                 gold_evidence_indices = [instance_metadata["all_evidence_masks"]
                                          for instance_metadata in metadata]
                 for evidence_f1 in self._compute_evidence_f1(predicted_evidence_indices,
@@ -213,6 +252,7 @@ class QasperBaseline(Model):
         none_f1_score = self._answer_f1_by_type[AnswerType.NONE].get_metric(reset)
         evidence_f1 = self._evidence_f1.get_metric(reset)
         evidence_loss = self._evidence_loss.get_metric(reset)
+        threshold = self._train_evidence_logit_thresh.get_metric(reset=True)
         return {
             "answer_f1": f1_score,
             "extr_f1": extractive_f1_score,
