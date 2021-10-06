@@ -81,6 +81,9 @@ class QasperBaseline(Model):
         else:
             sorted_indices = torch.argsort(target_scores, descending=True)
             for instance_sorted_indices, instance_metadata in zip(sorted_indices, metadata):
+                # TODO (pradeep): Also evaluate on predicting NULL evidence.
+                if not instance_metadata["all_evidence"]:
+                    continue
                 precision, recall, f1 = self.compute_top_k_metrics(instance_sorted_indices,
                                                                    instance_metadata["all_paragraphs"],
                                                                    instance_metadata["all_evidence"])

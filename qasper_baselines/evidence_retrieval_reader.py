@@ -38,6 +38,7 @@ class QasperEvidenceReader(DatasetReader):
         max_query_length: int = 512,
         max_target_length: int = 512,
         max_num_negatives: int = 10,
+        num_samples_per_positive: int = 1,
         for_training: bool = True,
         **kwargs,
     ) -> None:
@@ -57,6 +58,7 @@ class QasperEvidenceReader(DatasetReader):
         self.max_query_length = max_query_length
         self.max_target_length = max_target_length
         self.max_num_negatives = max_num_negatives
+        self._num_samples_per_positive = num_samples_per_positive
         self._for_training = for_training
         self._stats = defaultdict(int)
 
@@ -113,7 +115,12 @@ class QasperEvidenceReader(DatasetReader):
             if self._for_training:
                 all_non_evidence = self._sample_negatives(all_evidence, paragraphs)
                 for evidence, non_evidence in zip(all_evidence, all_non_evidence):
-                    for positive, negatives in zip(evidence, non_evidence):
+                    augmented_positive_evidence = []
+                    for snippet in evidence:
+                        for _ in range(self._num_samples_per_positive):
+                            augmented_positive_evidence.append(snippet)
+                    assert len(augmented_positive_evidence) == len(non_evidence)
+                    for positive, negatives in zip(augmented_positive_evidence, non_evidence):
                         positive_index = random.randint(0, len(negatives) - 1)
                         target_candidates = negatives[:positive_index] + [positive] + negatives[positive_index:]
                         yield self.text_to_instance(
@@ -152,10 +159,20 @@ class QasperEvidenceReader(DatasetReader):
 
 
         target_candidate_fields_list = []
+        max_paragraph_length = (
+            self.max_target_length
+            - len(self._tokenizer.single_sequence_start_tokens)
+            - len(self._tokenizer.single_sequence_end_tokens)
+        )
         for target_candidate in target_candidates:
+            tokenized_paragraph = self._tokenizer.tokenize(target_candidate)
+            if len(tokenized_paragraph) > max_paragraph_length:
+                self._stats["number of truncated targets"] += 1
+                tokenized_paragraph = tokenized_paragraph[:max_paragraph_length]
+
             tokenized_target = (
                 self._tokenizer.single_sequence_start_tokens
-                + self._tokenizer.tokenize(target_candidate)
+                + tokenized_paragraph
                 + self._tokenizer.single_sequence_end_tokens
             )
             target_candidate_fields_list.append(TextField(tokenized_target))
@@ -236,8 +253,8 @@ class QasperEvidenceReader(DatasetReader):
         paragraphs: List[str]
     ) -> List[List[List[str]]]:
         """
-        Returns a sets of negative candidates, one per evidence, such that each set does not contain any of the
-        positive evidence and has at most `max_num_negatives` paragraphs.
+        Returns a sets of negative candidates, `num_samples_per_positive` per evidence snippet, such that each set does
+        not contain any of the positive evidence and has at most `max_num_negatives` paragraphs.
         """
         positive_pool = set()
         for evidence in all_evidence:
@@ -245,7 +262,7 @@ class QasperEvidenceReader(DatasetReader):
                 positive_pool.add(snippet)
         negative_pool = [paragraph for paragraph in paragraphs if paragraph not in positive_pool]
         max_num_negatives = min(len(negative_pool), self.max_num_negatives)
-        all_negatives = [[random.sample(negative_pool, max_num_negatives) for _ in evidence]
+        all_negatives = [[random.sample(negative_pool, max_num_negatives) for _ in range(len(evidence) * self._num_samples_per_positive)]
                          for evidence in all_evidence]
         return all_negatives
 
